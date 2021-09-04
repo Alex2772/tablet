@@ -67,7 +67,7 @@ static void MX_USART1_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-
+/*
 struct {
     uint8_t is_keyboard_has_new_data;
     uint8_t is_consumer_has_new_data;
@@ -100,7 +100,7 @@ struct {
     uint8_t select_www : 1;
     uint8_t select_home : 1;
     uint8_t select_messages : 1;
-} hid_consumer_report;
+} hid_consumer_report; */
 struct {
     uint8_t report_id;
     uint8_t buttons;
@@ -112,7 +112,7 @@ struct {
 
 
 int is_fn_down() {
-    return is_fn_down_v;
+    return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10);
 }
 
 extern uint32_t sensor_measure(GPIO_TypeDef *gpiox, uint32_t pin);
@@ -153,7 +153,7 @@ sensor_pin_t stick_pin_data[] = {
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     //USBD_HID_SendReport(&hUsbDeviceFS, )
-
+/*
     if (from_keyboard_controller_packet.high == 0) {
         for (int i = 0; i < 50; ++i) {
             HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
@@ -275,7 +275,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
                 state.is_keyboard_has_new_data = 1;
         }
     }
-    HAL_UART_Receive_IT(&huart1, &from_keyboard_controller_packet, sizeof(from_keyboard_controller_packet));
+    HAL_UART_Receive_IT(&huart1, &from_keyboard_controller_packet, sizeof(from_keyboard_controller_packet));*/
 }
 /**
   * @brief  UART error callbacks.
@@ -297,13 +297,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-  memset(&hid_keyboard_report, 0, sizeof(hid_keyboard_report));
-  memset(&hid_consumer_report, 0, sizeof(hid_consumer_report));
   memset(&hid_mouse_report, 0, sizeof(hid_mouse_report));
-  memset(&state, 0, sizeof(state));
   hid_mouse_report.report_id = 1;
-  hid_keyboard_report.report_id = 2;
-  hid_consumer_report.report_id = 3;
   /* USER CODE END 1 */
   
 
@@ -355,7 +350,6 @@ int main(void)
   vec2 mouseAcc = {0, 0};
   vec2 scrollAcc = {0, 0};
 
-  HAL_UART_Receive_IT(&huart1, &from_keyboard_controller_packet, sizeof(from_keyboard_controller_packet));
   while (1)
   {
     /* USER CODE END WHILE */
@@ -413,40 +407,31 @@ int main(void)
     hid_mouse_report.buttons = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_8) | (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9) << 1);
 
 
-    if (state.is_keyboard_has_new_data) {
-      state.is_keyboard_has_new_data = 0;
-      USBD_HID_SendReport(&hUsbDeviceFS, &hid_keyboard_report, sizeof(hid_keyboard_report));
-    } else if (state.is_consumer_has_new_data) {
-      state.is_consumer_has_new_data = 0;
-      USBD_HID_SendReport(&hUsbDeviceFS, &hid_consumer_report, sizeof(hid_consumer_report));
-    } else {
-      if (is_fn_down()) {
-          scrollAcc.x += mouseAcc.x;
-          scrollAcc.y -= mouseAcc.y;
+    if (is_fn_down()) {
+      scrollAcc.x += mouseAcc.x;
+      scrollAcc.y -= mouseAcc.y;
 
-          if (abs(scrollAcc.x) > abs(scrollAcc.y)) {
-              scrollAcc.y = 0;
-          } else {
-              scrollAcc.x = 0;
-          }
-
-          hid_mouse_report.wheelX = scrollAcc.x / 16;
-          hid_mouse_report.wheelY = scrollAcc.y / 16;
-          scrollAcc.x -= hid_mouse_report.wheelX * 16;
-          scrollAcc.y -= hid_mouse_report.wheelY * 16;
-
-          hid_mouse_report.x = 0;
-          hid_mouse_report.y = 0;
+      if (abs(scrollAcc.x) > abs(scrollAcc.y)) {
+          scrollAcc.y = 0;
       } else {
-          hid_mouse_report.x = mouseAcc.x;
-          hid_mouse_report.y = mouseAcc.y;
-          hid_mouse_report.wheelY = 0;
-          hid_mouse_report.wheelX = 0;
+          scrollAcc.x = 0;
       }
-        mouseAcc.x = mouseAcc.y = 0;
-      USBD_HID_SendReport(&hUsbDeviceFS, &hid_mouse_report, sizeof(hid_mouse_report));
+
+      hid_mouse_report.wheelX = scrollAcc.x / 16;
+      hid_mouse_report.wheelY = scrollAcc.y / 16;
+      scrollAcc.x -= hid_mouse_report.wheelX * 16;
+      scrollAcc.y -= hid_mouse_report.wheelY * 16;
+
+      hid_mouse_report.x = 0;
+      hid_mouse_report.y = 0;
+    } else {
+      hid_mouse_report.x = mouseAcc.x;
+      hid_mouse_report.y = mouseAcc.y;
+      hid_mouse_report.wheelY = 0;
+      hid_mouse_report.wheelX = 0;
     }
-    HAL_UART_Receive_IT(&huart1, &from_keyboard_controller_packet, sizeof(from_keyboard_controller_packet));
+    mouseAcc.x = mouseAcc.y = 0;
+    USBD_HID_SendReport(&hUsbDeviceFS, &hid_mouse_report, sizeof(hid_mouse_report));
   }
   /* USER CODE END 3 */
 }
@@ -554,7 +539,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA8 PA9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9;
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
