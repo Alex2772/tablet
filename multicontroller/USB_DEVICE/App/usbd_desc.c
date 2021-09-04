@@ -67,7 +67,7 @@
 #define USBD_LANGID_STRING     1033
 #define USBD_MANUFACTURER_STRING     "Alex2772"
 #define USBD_PID_FS     22315
-#define USBD_PRODUCT_STRING_FS     "CCalc Wristtop Pro HID"
+#define USBD_PRODUCT_STRING_FS     "AT Handbook HID"
 #define USBD_CONFIGURATION_STRING_FS     "HID Config"
 #define USBD_INTERFACE_STRING_FS     "HID Interface"
 

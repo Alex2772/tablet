@@ -252,6 +252,7 @@ __ALIGN_BEGIN static uint8_t HID_MOUSE_ReportDesc[HID_MOUSE_REPORT_DESC_SIZE]  _
                 0x81, 0x06,                    //     INPUT (Data,Var,Rel)
                 0xc0,                          //   END_COLLECTION
                 0xc0,                          // END_COLLECTION
+                /*
                 0x05, 0x01,                    // USAGE_PAGE (Generic Desktop)
                 0x09, 0x06,                    // USAGE (Keyboard)
                 0xa1, 0x01,                    // COLLECTION (Application)
@@ -302,6 +303,7 @@ __ALIGN_BEGIN static uint8_t HID_MOUSE_ReportDesc[HID_MOUSE_REPORT_DESC_SIZE]  _
 
                 0x81, 0x02,                    //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
                 0xC0,              // End Collection
+                 */
         };
 
 /**
