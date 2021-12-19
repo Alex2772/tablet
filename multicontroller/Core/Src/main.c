@@ -21,6 +21,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include <usbd_hid.h>
 #include <map_keycode.h>
+#include <math.h>
 #include "main.h"
 #include "usb_device.h"
 
@@ -132,17 +133,25 @@ uint32_t simple_button(GPIO_TypeDef *gpiox, uint32_t pin) {
 }
 
 sensor_pin_t stick_pin_data[] = {
-        {GPIOA, 0,           sensor_measure, 2}, // 0
-        {GPIOA, 1,           sensor_measure, 3}, // 1
-        {GPIOA, 4,           sensor_measure, 2}, // 2
-        {GPIOA, 3,           sensor_measure, 2}, // 3
-//        {GPIOA, 4,           sensor_measure, 1}, // 4
-        {GPIOA, 5,           sensor_measure, 2}, // 5
-        {GPIOA, 6,           sensor_measure, 3}, // 6
-        {GPIOA, 7,           sensor_measure, 2}, // 7
-        {GPIOB, 0,           sensor_measure, 4}, // 8
+        {GPIOA, 0,           sensor_measure, 4}, // 0
+        {GPIOA, 1,           sensor_measure, 4}, // 1
+        {GPIOA, 4,           sensor_measure, 4}, // 2
+        {GPIOA, 3,           sensor_measure, 4}, // 3
+//        {GPIOA, 4,           sensor_measure4 1}, // 4
+        {GPIOA, 5,           sensor_measure, 4}, // 4
+        {GPIOA, 6,           sensor_measure, 5}, // 5
+        {GPIOA, 7,           sensor_measure, 4}, // 6
+        {GPIOB, 0,           sensor_measure, 4}, // 7
         {0}
 };
+
+int sign(int i) {
+    if (i > 0)
+        return 1;
+    if (i < 0)
+        return -1;
+    return 0;
+}
 
 /**
   * @brief  Rx Transfer completed callbacks.
@@ -345,7 +354,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
 
   typedef struct {
-    int8_t x, y;
+    int16_t x, y;
   } vec2;
   vec2 mouseAcc = {0, 0};
   vec2 scrollAcc = {0, 0};
@@ -366,7 +375,25 @@ int main(void)
       {
         int8_t measureTemp = stick_pin_data[i].callback(stick_pin_data[i].gpiox, stick_pin_data[i].pin);
         measureTemp -= stick_pin_data[i].offset;
-        measureTemp = measureTemp < 0 ? 0 : measureTemp;
+        if (measureTemp <= 0) continue;
+        switch (measureTemp) {
+            case 0 : measureTemp = 00; break;
+            case 1 : measureTemp = 10; break;
+            case 2 : measureTemp = 11; break; // 1
+            case 3 : measureTemp = 13; break; // 2
+            case 4 : measureTemp = 16; break;
+            case 5 : measureTemp = 20; break;
+            case 6 : measureTemp = 25; break;
+            case 7 : measureTemp = 31; break;
+            case 8 : measureTemp = 38; break;
+            case 9 : measureTemp = 46; break;
+            case 10: measureTemp = 55; break;
+            case 11: measureTemp = 65; break;
+            case 12: measureTemp = 86; break;
+            case 13: measureTemp = 98; break;
+            case 14: measureTemp = 120; break;
+            case 15: measureTemp = 150; break;
+        }
         switch (i) {
           case 0:
               mouseAcc.x -= measureTemp;
@@ -407,30 +434,36 @@ int main(void)
     hid_mouse_report.buttons = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_8) | (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9) << 1);
 
 
-    if (is_fn_down()) {
-      scrollAcc.x += mouseAcc.x;
-      scrollAcc.y -= mouseAcc.y;
+    if (abs(hid_mouse_report.x) < 10) hid_mouse_report.x = 0;
+    if (abs(hid_mouse_report.y) < 10) hid_mouse_report.y = 0;
 
+    hid_mouse_report.x = mouseAcc.x / 10;
+    hid_mouse_report.y = mouseAcc.y / 10;
+    mouseAcc.x -= hid_mouse_report.x * 10;
+    mouseAcc.y -= hid_mouse_report.y * 10;
+
+    if (is_fn_down()) {
+      scrollAcc.x += hid_mouse_report.x;
+      scrollAcc.y -= hid_mouse_report.y;
+        hid_mouse_report.x = 0;
+        hid_mouse_report.y = 0;
       if (abs(scrollAcc.x) > abs(scrollAcc.y)) {
           scrollAcc.y = 0;
       } else {
           scrollAcc.x = 0;
       }
 
-      hid_mouse_report.wheelX = scrollAcc.x / 16;
-      hid_mouse_report.wheelY = scrollAcc.y / 16;
-      scrollAcc.x -= hid_mouse_report.wheelX * 16;
-      scrollAcc.y -= hid_mouse_report.wheelY * 16;
+      hid_mouse_report.wheelX = scrollAcc.x / 4;
+      hid_mouse_report.wheelY = scrollAcc.y / 4;
+      scrollAcc.x -= hid_mouse_report.wheelX * 4;
+      scrollAcc.y -= hid_mouse_report.wheelY * 4;
 
       hid_mouse_report.x = 0;
       hid_mouse_report.y = 0;
     } else {
-      hid_mouse_report.x = mouseAcc.x;
-      hid_mouse_report.y = mouseAcc.y;
-      hid_mouse_report.wheelY = 0;
       hid_mouse_report.wheelX = 0;
+      hid_mouse_report.wheelY = 0;
     }
-    mouseAcc.x = mouseAcc.y = 0;
     USBD_HID_SendReport(&hUsbDeviceFS, &hid_mouse_report, sizeof(hid_mouse_report));
   }
   /* USER CODE END 3 */
