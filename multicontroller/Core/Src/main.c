@@ -31,6 +31,9 @@
 #include "main.h"
 #include "usb_device.h"
 #include "usb_hid_keys.h"
+#include <stm32f1xx_hal_flash.h>
+#include <stm32f1xx_hal_flash_ex.h>
+#include <assert.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,6 +52,14 @@
 
 /* Private variables ---------------------------------------------------------*/
 UART_HandleTypeDef huart1;
+
+typedef struct {
+    int8_t offsets[8];
+} calibration_data_t;
+
+typedef struct {
+    calibration_data_t calibration;
+} config_t;
 
 /* USER CODE BEGIN PV */
 
@@ -123,7 +134,6 @@ typedef struct {
     uint32_t pin;
 
     uint32_t (*callback)(GPIO_TypeDef *, uint32_t);
-    int offset;
 } sensor_pin_t;
 
 
@@ -133,24 +143,31 @@ uint32_t simple_button(GPIO_TypeDef *gpiox, uint32_t pin) {
 }
 
 sensor_pin_t stick_pin_data[] = {
-        {GPIOA, 0,           sensor_measure, 4}, // 0
-        {GPIOA, 1,           sensor_measure, 4}, // 1
-        {GPIOA, 4,           sensor_measure, 4}, // 2
-        {GPIOA, 3,           sensor_measure, 4}, // 3
-//        {GPIOA, 4,           sensor_measure4 1}, // 4
-        {GPIOA, 5,           sensor_measure, 4}, // 4
-        {GPIOA, 6,           sensor_measure, 5}, // 5
-        {GPIOA, 7,           sensor_measure, 4}, // 6
-        {GPIOB, 0,           sensor_measure, 4}, // 7
+        {GPIOA, 0,           sensor_measure }, // 0
+        {GPIOA, 1,           sensor_measure }, // 1
+        {GPIOA, 4,           sensor_measure }, // 2
+        {GPIOA, 3,           sensor_measure }, // 3
+//        {GPIOA, 4,           sensor_measure }, // 4
+        {GPIOA, 5,           sensor_measure }, // 4
+        {GPIOA, 6,           sensor_measure }, // 5
+        {GPIOA, 7,           sensor_measure }, // 6
+        {GPIOB, 0,           sensor_measure }, // 7
         {0}
 };
 
-int sign(int i) {
+int isign(int i) {
     if (i > 0)
         return 1;
     if (i < 0)
         return -1;
     return 0;
+}
+
+int8_t i8max(int8_t a, int8_t b) {
+    if (a > b) {
+        return a;
+    }
+    return b;
 }
 
 /**
@@ -297,6 +314,8 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     Error_Handler();
 }
 
+uint32_t gCalibrationModeSwitchPressTimestamp = 0;
+
 /* USER CODE END 0 */
 
 /**
@@ -359,6 +378,15 @@ int main(void)
   vec2 mouseAcc = {0, 0};
   vec2 scrollAcc = {0, 0};
 
+  int isCalibrating = 0;
+  volatile config_t* pConfig =
+          0x8000000 + // flash beginning
+          0x10000 / 2 // flash size
+          - 1024      // one page
+          ;
+
+  calibration_data_t newCalibrationData;
+
   while (1)
   {
     /* USER CODE END WHILE */
@@ -374,7 +402,18 @@ int main(void)
       }*/
       {
         int8_t measureTemp = stick_pin_data[i].callback(stick_pin_data[i].gpiox, stick_pin_data[i].pin);
-        measureTemp -= stick_pin_data[i].offset;
+
+        if (isCalibrating) {
+            newCalibrationData.offsets[i] = i8max(newCalibrationData.offsets[i], measureTemp);
+        }
+
+        if (pConfig->calibration.offsets[i] == -1 && !isCalibrating) {
+            // looks like empty data; switch to calibration mode
+            isCalibrating = 1;
+            memset(&newCalibrationData, 0, sizeof(newCalibrationData));
+            gCalibrationModeSwitchPressTimestamp = HAL_GetTick();
+        }
+        measureTemp -= pConfig->calibration.offsets[i];
         if (measureTemp <= 0) continue;
         switch (measureTemp) {
             case 0 : measureTemp = 00; break;
@@ -433,7 +472,6 @@ int main(void)
 
     hid_mouse_report.buttons = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_8) | (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_9) << 1);
 
-
     if (abs(hid_mouse_report.x) < 10) hid_mouse_report.x = 0;
     if (abs(hid_mouse_report.y) < 10) hid_mouse_report.y = 0;
 
@@ -441,6 +479,7 @@ int main(void)
     hid_mouse_report.y = mouseAcc.y / 10;
     mouseAcc.x -= hid_mouse_report.x * 10;
     mouseAcc.y -= hid_mouse_report.y * 10;
+
 
     if (is_fn_down()) {
       scrollAcc.x += hid_mouse_report.x;
@@ -464,7 +503,61 @@ int main(void)
       hid_mouse_report.wheelX = 0;
       hid_mouse_report.wheelY = 0;
     }
-    USBD_HID_SendReport(&hUsbDeviceFS, &hid_mouse_report, sizeof(hid_mouse_report));
+
+    // calibration mode
+    if (hid_mouse_report.buttons == 0b11 && is_fn_down() && !isCalibrating) {
+        if (gCalibrationModeSwitchPressTimestamp == -1) {
+            gCalibrationModeSwitchPressTimestamp = HAL_GetTick();
+        }
+        if (HAL_GetTick() - gCalibrationModeSwitchPressTimestamp > 3000) {
+            // switch to calibration mode
+            isCalibrating = 1;
+            mouseAcc.x = -1000; // report to user that calibration is started by moving cursor a little
+
+            memset(&newCalibrationData, 0, sizeof(newCalibrationData));
+        }
+    } else if (isCalibrating) {
+        if (HAL_GetTick() - gCalibrationModeSwitchPressTimestamp > 6000) {
+            // switch off the calibration mode
+            isCalibrating = 0;
+
+            // write new config
+            config_t newConfig = *pConfig;
+            newConfig.calibration = newCalibrationData;
+
+            // unlock memory
+            if (HAL_FLASH_Unlock() != HAL_OK) {
+                assert(0);
+            }
+
+            // erase page
+            SET_BIT(FLASH->CR, FLASH_CR_PER);
+            WRITE_REG(FLASH->AR, pConfig);
+            SET_BIT(FLASH->CR, FLASH_CR_STRT);
+            while ((FLASH->SR & FLASH_SR_BSY) != 0 );
+            CLEAR_BIT(FLASH->CR, FLASH_CR_PER);
+
+            // write data by 32-bit words
+            void* pNewConfigEnd = &newConfig + 1;
+            SET_BIT(FLASH->CR, FLASH_CR_PG);   // we're going to program new data
+            for (volatile uint16_t* pOldConfig = pConfig, *pNewConfig = &newConfig; pNewConfig < pNewConfigEnd; pNewConfig += 1, pOldConfig += 1) {
+                *pOldConfig = *pNewConfig;
+                while ((FLASH->SR & FLASH_SR_BSY) != 0 );
+                assert(*pOldConfig == *pNewConfig);
+            }
+            CLEAR_BIT(FLASH->CR, FLASH_CR_PG); // we've finished writing
+            HAL_FLASH_Lock();
+
+
+            mouseAcc.x = -1000; // report to user that calibration is completed by moving cursor a little
+            gCalibrationModeSwitchPressTimestamp = -1; // reset timer
+        }
+    } else {
+        gCalibrationModeSwitchPressTimestamp = -1;
+    }
+
+
+      USBD_HID_SendReport(&hUsbDeviceFS, &hid_mouse_report, sizeof(hid_mouse_report));
   }
   /* USER CODE END 3 */
 }
